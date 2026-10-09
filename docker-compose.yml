@@ -1,0 +1,31 @@
+x-logging: &default-logging
+  logging:
+    driver: json-file
+    options:
+      max-size: 100M
+
+services:
+  # --- CodeHaunt app database is Neon-hosted Postgres; DATABASE_URL comes from .env ---
+
+  # --- CodeHaunt backend (FastAPI). Runs submissions as unprivileged
+  # subprocesses in this same container (app/sandbox.py) — no separate
+  # judge service needed. ---
+  backend:
+    build: ./backend
+    env_file: .env
+    ports:
+      - "8000:8000"
+    <<: *default-logging
+    restart: always
+
+  # --- CodeHaunt frontend (React/Vite) ---
+  frontend:
+    build: ./frontend
+    environment:
+      VITE_API_URL: http://localhost:8000
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+    <<: *default-logging
+    restart: always
