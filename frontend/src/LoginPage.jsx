@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom";
 import { Ghost } from "@phosphor-icons/react";
 import { useAuth } from "./AuthContext.jsx";
 import { enterFullscreen } from "./fullscreen.js";
-import HauntedBackground from "./components/HauntedBackground.jsx";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -26,7 +25,6 @@ export default function LoginPage() {
 
   return (
     <div className="centered-page">
-      <HauntedBackground />
       <div className="login-scene">
         <h1 className="login-wordmark">
           <Ghost size={40} weight="fill" className="login-wordmark-ghost" />

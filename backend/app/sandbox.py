@@ -26,6 +26,7 @@ TEMP_DIR = Path(tempfile.gettempdir()) / "codehaunt-sandbox"
 TEMP_DIR.mkdir(exist_ok=True)
 
 IS_MAC = sys.platform == "darwin"
+IS_WINDOWS = os.name == "nt"
 
 # Dedicated low-privilege user submissions actually run as, when this
 # process is root (true inside the deployed container, never true for local
@@ -73,20 +74,34 @@ def normalize_output(text: str | None) -> str:
     return (text or "").replace("\r\n", "\n").strip()
 
 
-def _run_limited(cwd: Path, mem_kb: int, cpu_sec: float, cmd: list[str], stdin_data: str, skip_vmem: bool):
-    quoted = " ".join(shlex.quote(a) for a in cmd)
-    mem_line = "" if (IS_MAC or skip_vmem) else f"ulimit -v {mem_kb} 2>/dev/null || true;"
-    proc_line = "" if IS_MAC else "ulimit -u 32 2>/dev/null || true;"
-    shell_line = f"{mem_line} ulimit -t {int(cpu_sec)} 2>/dev/null || true; {proc_line} exec {quoted}"
+def _windows_argv(cwd: Path, cmd: list[str]) -> list[str]:
+    """No `sh`/`ulimit` on native Windows: run the command directly, using this
+    interpreter for python3 and the .exe that gcc/g++ emit for ./program."""
+    if cmd[0] == "python3":
+        return [sys.executable, *cmd[1:]]
+    if cmd[0] == "./program":
+        return [str(cwd / "program.exe")]
+    return cmd
 
+
+def _run_limited(cwd: Path, mem_kb: int, cpu_sec: float, cmd: list[str], stdin_data: str, skip_vmem: bool):
     kwargs = {}
-    if _CAN_DROP_PRIVILEGES:
-        kwargs["user"] = SANDBOX_UID
-        kwargs["group"] = SANDBOX_GID
+    if IS_WINDOWS:
+        # Dev-only path: no memory/process caps are available here, only the timeout below.
+        argv = _windows_argv(cwd, cmd)
+    else:
+        quoted = " ".join(shlex.quote(a) for a in cmd)
+        mem_line = "" if (IS_MAC or skip_vmem) else f"ulimit -v {mem_kb} 2>/dev/null || true;"
+        proc_line = "" if IS_MAC else "ulimit -u 32 2>/dev/null || true;"
+        shell_line = f"{mem_line} ulimit -t {int(cpu_sec)} 2>/dev/null || true; {proc_line} exec {quoted}"
+        argv = ["sh", "-c", shell_line]
+        if _CAN_DROP_PRIVILEGES:
+            kwargs["user"] = SANDBOX_UID
+            kwargs["group"] = SANDBOX_GID
 
     try:
         result = subprocess.run(
-            ["sh", "-c", shell_line],
+            argv,
             cwd=cwd,
             input=stdin_data or "",
             capture_output=True,
@@ -97,6 +112,10 @@ def _run_limited(cwd: Path, mem_kb: int, cpu_sec: float, cmd: list[str], stdin_d
         return {"code": result.returncode, "stdout": result.stdout, "stderr": result.stderr, "timed_out": False}
     except subprocess.TimeoutExpired as exc:
         return {"code": 1, "stdout": exc.stdout or "", "stderr": exc.stderr or "", "timed_out": True}
+    except FileNotFoundError:
+        # Toolchain (gcc, javac, ...) isn't installed here: report it as a
+        # failed build/run instead of letting it surface as a 500.
+        return {"code": 127, "stdout": "", "stderr": f"{argv[0]} not found", "timed_out": False}
 
 
 def _execute_one(language: str, code: str, stdin: str, mem_kb: int, cpu_sec: float) -> dict:

@@ -33,10 +33,15 @@ export default function QuestionList() {
       {loading && <p className="loading-text">Summoning questions</p>}
       {!loading &&
         ["easy", "medium", "hard"].map((diff) => (
-          <section key={diff}>
-            <h2>
-              <span className={`badge badge-${diff}`}>{diff}</span>
-            </h2>
+          <section key={diff} className="panel">
+            <div className="panel-head">
+              <h2>
+                <span className={`badge badge-${diff}`}>{diff}</span>
+              </h2>
+              <span className="hint">
+                {grouped[diff].filter((q) => solvedIds.has(q.id)).length} / {grouped[diff].length} solved
+              </span>
+            </div>
             {grouped[diff].length === 0 ? (
               <p className="empty-state">No {diff} questions yet.</p>
             ) : (

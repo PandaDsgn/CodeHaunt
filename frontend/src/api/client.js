@@ -27,6 +27,9 @@ export const api = {
   login: (email, password) =>
     request("/auth/login", { method: "POST", form: { username: email, password } }),
   createParticipant: (data) => request("/auth/participants", { method: "POST", body: data }),
+  listParticipants: () => request("/auth/participants"),
+  disqualifyParticipant: (id) => request(`/auth/participants/${id}/disqualify`, { method: "POST" }),
+  reinstateParticipant: (id) => request(`/auth/participants/${id}/reinstate`, { method: "POST" }),
   me: () => request("/auth/me"),
   disqualify: () => request("/auth/disqualify", { method: "POST" }),
 

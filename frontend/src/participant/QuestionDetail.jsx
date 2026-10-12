@@ -111,62 +111,73 @@ export default function QuestionDetail() {
         </button>
       </div>
 
-      <h1>{question.title}</h1>
-      <p className="difficulty-badge">
-        <span className={`badge badge-${question.difficulty}`}>{question.difficulty}</span>
-        {solved && (
-          <span className="solved-tag">
-            <CheckCircle size={15} weight="fill" />
-            Solved
-          </span>
-        )}
-      </p>
-      <pre className="statement">{question.statement}</pre>
+      <section className="panel">
+        <h1>{question.title}</h1>
+        <p className="difficulty-badge">
+          <span className={`badge badge-${question.difficulty}`}>{question.difficulty}</span>
+          {solved && (
+            <span className="solved-tag">
+              <CheckCircle size={15} weight="fill" />
+              Solved
+            </span>
+          )}
+        </p>
+        <pre className="statement">{question.statement}</pre>
 
-      <h3>Public test cases</h3>
-      {question.public_test_cases.map((tc) => (
-        <div key={tc.id} className="test-case">
-          <div>
-            <strong>Input</strong>
-            <pre>{tc.input}</pre>
+        <h3>Public test cases</h3>
+        {question.public_test_cases.map((tc) => (
+          <div key={tc.id} className="test-case">
+            <div>
+              <strong>Input</strong>
+              <pre>{tc.input}</pre>
+            </div>
+            <div>
+              <strong>Expected output</strong>
+              <pre>{tc.expected_output}</pre>
+            </div>
           </div>
-          <div>
-            <strong>Expected output</strong>
-            <pre>{tc.expected_output}</pre>
+        ))}
+      </section>
+
+      <section className="panel">
+        <div className="panel-head">
+          <h2>Your solution</h2>
+        </div>
+        <form onSubmit={handleSubmit} className="submit-form">
+          <LanguagePicker languages={question.allowed_languages} value={language} onChange={setLanguage} />
+          <div className="code-editor">
+            <Editor
+              height="420px"
+              language={MONACO_LANGUAGE[language]}
+              value={code}
+              onChange={(value) => setCode(value || "")}
+              theme="codehaunt-dark"
+              beforeMount={defineCodehauntTheme}
+              options={{
+                fontFamily: "ui-monospace, 'SF Mono', Menlo, monospace",
+                fontSize: 14,
+                tabSize: 4,
+                insertSpaces: true,
+                minimap: { enabled: false },
+                scrollBeyondLastLine: false,
+                automaticLayout: true,
+                padding: { top: 12 },
+              }}
+            />
           </div>
-        </div>
-      ))}
+          <button type="submit" disabled={submitting || !code.trim()}>
+            {submitting ? "Judging..." : "Submit"}
+          </button>
+        </form>
+        {error && <p className="error">{error}</p>}
+      </section>
 
-      <form onSubmit={handleSubmit} className="submit-form">
-        <LanguagePicker languages={question.allowed_languages} value={language} onChange={setLanguage} />
-        <div className="code-editor">
-          <Editor
-            height="420px"
-            language={MONACO_LANGUAGE[language]}
-            value={code}
-            onChange={(value) => setCode(value || "")}
-            theme="codehaunt-dark"
-            beforeMount={defineCodehauntTheme}
-            options={{
-              fontFamily: "ui-monospace, 'SF Mono', Menlo, monospace",
-              fontSize: 14,
-              tabSize: 4,
-              insertSpaces: true,
-              minimap: { enabled: false },
-              scrollBeyondLastLine: false,
-              automaticLayout: true,
-              padding: { top: 12 },
-            }}
-          />
+      <section className="panel">
+        <div className="panel-head">
+          <h2>Submissions ({submissions.length})</h2>
         </div>
-        <button type="submit" disabled={submitting || !code.trim()}>
-          {submitting ? "Judging..." : "Submit"}
-        </button>
-      </form>
-      {error && <p className="error">{error}</p>}
-
-      <h3>Submissions ({submissions.length})</h3>
-      <SubmissionViewer submissions={submissions} />
+        <SubmissionViewer submissions={submissions} />
+      </section>
 
       <AiChatPanel questionId={id} />
     </div>

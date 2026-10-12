@@ -31,8 +31,10 @@ export default function AiChatPanel({ questionId }) {
   }
 
   return (
-    <div className="ai-chat">
-      <h3>Ask the tutor</h3>
+    <section className="panel ai-chat">
+      <div className="panel-head">
+        <h2>Ask the tutor</h2>
+      </div>
       <p className="hint">It will only nudge you. No code, no pseudocode, no algorithm names.</p>
       {messages.length === 0 ? (
         <p className="empty-state">No messages yet. Ask for a nudge.</p>
@@ -59,6 +61,6 @@ export default function AiChatPanel({ questionId }) {
           Send
         </button>
       </form>
-    </div>
+    </section>
   );
 }

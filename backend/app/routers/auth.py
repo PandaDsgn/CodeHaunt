@@ -44,6 +44,52 @@ def create_participant(
     return user
 
 
+@router.get("/participants", response_model=list[MeOut])
+def list_participants(
+    db: Session = Depends(get_db),
+    _organizer: User = Depends(require_role(Role.organizer)),
+):
+    return db.query(User).filter(User.role == Role.participant).order_by(User.name).all()
+
+
+def _get_participant(db: Session, user_id: int) -> User:
+    user = db.get(User, user_id)
+    if user is None or user.role != Role.participant:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Participant not found")
+    return user
+
+
+@router.post("/participants/{user_id}/disqualify", response_model=MeOut)
+def disqualify_participant(
+    user_id: int,
+    db: Session = Depends(get_db),
+    _organizer: User = Depends(require_role(Role.organizer)),
+):
+    """Organizer disqualifies a participant. Idempotent, like the self-service route."""
+    user = _get_participant(db, user_id)
+    if user.disqualified_at is None:
+        user.disqualified_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(user)
+    return user
+
+
+@router.post("/participants/{user_id}/reinstate", response_model=MeOut)
+def reinstate_participant(
+    user_id: int,
+    db: Session = Depends(get_db),
+    _organizer: User = Depends(require_role(Role.organizer)),
+):
+    """Organizer lifts a disqualification; the participant's score was never
+    removed, so they resume from where they left off."""
+    user = _get_participant(db, user_id)
+    if user.disqualified_at is not None:
+        user.disqualified_at = None
+        db.commit()
+        db.refresh(user)
+    return user
+
+
 @router.get("/me", response_model=MeOut)
 def get_me(user: User = Depends(get_current_user)):
     return user

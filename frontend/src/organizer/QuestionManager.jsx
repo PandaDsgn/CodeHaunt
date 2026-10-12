@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Check, Clock, Plus, Trash } from "@phosphor-icons/react";
 import { api } from "../api/client.js";
 import LanguagePicker from "../components/LanguagePicker.jsx";
+import NumberStepper from "../components/NumberStepper.jsx";
 
 const LANGUAGES = ["python3", "c", "cpp", "java"];
 
@@ -16,7 +17,8 @@ function emptyForm() {
     difficulty: "easy",
     base_score: 100,
     allowed_languages: ["python3"],
-    ends_at: "",
+    hours: "",
+    minutes: "",
     test_cases: [emptyTestCase()],
   };
 }
@@ -28,21 +30,61 @@ function toLocalInputValue(isoString) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-function DeadlineEditor({ question, onSaved }) {
-  const [value, setValue] = useState(toLocalInputValue(question.ends_at));
+/** Question deadlines are a countdown from the event start: hours + minutes. */
+function durationParts(endsAt, startsAt) {
+  if (!endsAt || !startsAt) return { hours: "", minutes: "" };
+  const total = Math.max(0, Math.round((new Date(endsAt) - new Date(startsAt)) / 60000));
+  return { hours: String(Math.floor(total / 60)), minutes: String(total % 60) };
+}
+
+function endsAtFor(startsAt, hours, minutes) {
+  const total = (Number(hours) || 0) * 60 + (Number(minutes) || 0);
+  if (!hours && !minutes) return null;
+  if (!startsAt) throw new Error("Set the event start time first, deadlines count down from it.");
+  return new Date(new Date(startsAt).getTime() + total * 60000).toISOString();
+}
+
+function DurationInputs({ hours, minutes, onChange }) {
+  return (
+    <span className="duration-inputs">
+      <NumberStepper value={hours} onChange={(h) => onChange({ hours: h, minutes })} ariaLabel="hours" />
+      h
+      <NumberStepper value={minutes} onChange={(m) => onChange({ hours, minutes: m })} max={59} ariaLabel="minutes" />
+      m
+    </span>
+  );
+}
+
+function DeadlineEditor({ question, startsAt, onSaved, onError }) {
+  const [parts, setParts] = useState(durationParts(question.ends_at, startsAt));
   const [saved, setSaved] = useState(false);
 
+  useEffect(() => {
+    setParts(durationParts(question.ends_at, startsAt));
+  }, [question.ends_at, startsAt]);
+
   async function handleSave() {
-    await api.setQuestionDeadline(question.id, value ? new Date(value).toISOString() : null);
-    onSaved();
-    setSaved(true);
-    setTimeout(() => setSaved(false), 1500);
+    onError("");
+    try {
+      await api.setQuestionDeadline(question.id, endsAtFor(startsAt, parts.hours, parts.minutes));
+      onSaved();
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1500);
+    } catch (err) {
+      onError(err.message);
+    }
   }
 
   return (
     <span className="deadline-editor">
-      <input type="datetime-local" value={value} onChange={(e) => setValue(e.target.value)} />
-      <button type="button" className="ghost" onClick={handleSave}>
+      <DurationInputs {...parts} onChange={setParts} />
+      <button
+        type="button"
+        className="ghost"
+        onClick={handleSave}
+        title="Save countdown"
+        aria-label="Save countdown"
+      >
         {saved ? <Check size={13} weight="bold" /> : <Clock size={13} />}
       </button>
     </span>
@@ -54,6 +96,7 @@ export default function QuestionManager() {
   const [form, setForm] = useState(emptyForm());
   const [error, setError] = useState("");
   const [startsAt, setStartsAt] = useState("");
+  const [startsAtIso, setStartsAtIso] = useState(null);
   const [startSaved, setStartSaved] = useState(false);
 
   function refresh() {
@@ -65,7 +108,10 @@ export default function QuestionManager() {
   useEffect(() => {
     api
       .getEvent()
-      .then((e) => setStartsAt(toLocalInputValue(e.starts_at)))
+      .then((e) => {
+        setStartsAt(toLocalInputValue(e.starts_at));
+        setStartsAtIso(e.starts_at);
+      })
       .catch(() => {});
   }, []);
 
@@ -73,7 +119,9 @@ export default function QuestionManager() {
     e.preventDefault();
     setError("");
     try {
-      await api.setEvent(startsAt ? new Date(startsAt).toISOString() : null);
+      const saved = await api.setEvent(startsAt ? new Date(startsAt).toISOString() : null);
+      setStartsAtIso(saved.starts_at);
+      refresh(); // deadlines shift along with the start time
       setStartSaved(true);
       setTimeout(() => setStartSaved(false), 1500);
     } catch (err) {
@@ -92,10 +140,11 @@ export default function QuestionManager() {
     e.preventDefault();
     setError("");
     try {
+      const { hours, minutes, ...rest } = form;
       await api.createQuestion({
-        ...form,
+        ...rest,
         base_score: Number(form.base_score),
-        ends_at: form.ends_at ? new Date(form.ends_at).toISOString() : null,
+        ends_at: endsAtFor(startsAtIso, form.hours, form.minutes),
         test_cases: form.test_cases.map((tc, i) => ({ ...tc, order_index: i })),
       });
       setForm(emptyForm());
@@ -111,135 +160,163 @@ export default function QuestionManager() {
   }
 
   return (
-    <div className="page">
+    <div className="page admin-page">
       <h1>Questions ({questions.length}/6)</h1>
       {error && <p className="error">{error}</p>}
 
-      <h2>Event start time</h2>
-      <p className="hint">
-        Participants are locked to a countdown screen until this time. Once it passes, exiting
-        fullscreen disqualifies them, so make sure everyone's actually ready before you set this.
-      </p>
-      <form onSubmit={handleSaveStart} className="card timer-form">
-        <label>
-          Starts at
-          <input type="datetime-local" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} />
-        </label>
-        <button type="submit">
-          {startSaved ? <Check size={14} weight="bold" /> : null}
-          {startSaved ? "Saved" : "Save start time"}
-        </button>
-      </form>
-
-      {questions.length === 0 ? (
-        <p className="empty-state">No questions yet. Create the first one below.</p>
-      ) : (
-        <ul className="question-list">
-          {questions.map((q) => (
-            <li key={q.id}>
-              <span className="meta">
-                <span className={`badge badge-${q.difficulty}`}>{q.difficulty}</span>
-                {q.title}
-              </span>
-              <DeadlineEditor question={q} onSaved={refresh} />
-              <span className="meta">
-                <span className="points">{q.base_score} pts</span>
-                <button className="danger" onClick={() => handleDelete(q.id)}>
-                  <Trash size={13} />
-                  Delete
-                </button>
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      <h2>New question</h2>
-      <form onSubmit={handleCreate} className="card">
-        <label>
-          Title
-          <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} required />
-        </label>
-        <label>
-          Statement
-          <textarea
-            value={form.statement}
-            onChange={(e) => setForm({ ...form, statement: e.target.value })}
-            rows={6}
-            required
-          />
-        </label>
-        <label>
-          Difficulty
-          <select
-            value={form.difficulty}
-            onChange={(e) => setForm({ ...form, difficulty: e.target.value })}
-          >
-            <option value="easy">easy</option>
-            <option value="medium">medium</option>
-            <option value="hard">hard</option>
-          </select>
-        </label>
-        <label>
-          Base score
-          <input
-            type="number"
-            value={form.base_score}
-            onChange={(e) => setForm({ ...form, base_score: e.target.value })}
-          />
-        </label>
-        <label>
-          Allowed languages
-          <LanguagePicker
-            languages={LANGUAGES}
-            value={form.allowed_languages}
-            onChange={(allowed_languages) => setForm({ ...form, allowed_languages })}
-            multiple
-          />
-        </label>
-        <label>
-          Deadline (optional)
-          <input
-            type="datetime-local"
-            value={form.ends_at}
-            onChange={(e) => setForm({ ...form, ends_at: e.target.value })}
-          />
-        </label>
-
-        <h3>Test cases</h3>
-        {form.test_cases.map((tc, i) => (
-          <div key={i} className="test-case-form">
-            <textarea
-              placeholder="input"
-              value={tc.input}
-              onChange={(e) => updateTestCase(i, "input", e.target.value)}
-            />
-            <textarea
-              placeholder="expected output"
-              value={tc.expected_output}
-              onChange={(e) => updateTestCase(i, "expected_output", e.target.value)}
-            />
+      <section className="panel">
+        <div className="panel-head">
+          <h2>Event start time</h2>
+        </div>
+        <div className="start-row">
+          <p className="hint">
+            Participants are locked to a countdown screen until this time. Once it passes, exiting
+            fullscreen disqualifies them, so make sure everyone's actually ready before you set this.
+          </p>
+          <form onSubmit={handleSaveStart} className="inline-form">
             <label>
-              public
-              <input
-                type="checkbox"
-                checked={tc.is_public}
-                onChange={(e) => updateTestCase(i, "is_public", e.target.checked)}
-              />
+              Starts at
+              <input type="datetime-local" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} />
             </label>
-          </div>
-        ))}
-        <button
-          type="button"
-          className="ghost"
-          onClick={() => setForm({ ...form, test_cases: [...form.test_cases, emptyTestCase()] })}
-        >
-          <Plus size={13} />
-          Add test case
-        </button>
+            <button type="submit">
+              {startSaved ? <Check size={14} weight="bold" /> : null}
+              {startSaved ? "Saved" : "Save start time"}
+            </button>
+          </form>
+        </div>
+      </section>
 
-        <button type="submit">Create question</button>
-      </form>
+      <section className="panel">
+        <div className="panel-head">
+          <h2>All questions</h2>
+          <span className="hint">{questions.length} of 6 created</span>
+        </div>
+        {questions.length === 0 ? (
+          <p className="empty-state">No questions yet. Create the first one below.</p>
+        ) : (
+          <ul className="question-list">
+            {questions.map((q) => (
+              <li key={q.id}>
+                <span className="meta">
+                  <span className={`badge badge-${q.difficulty}`}>{q.difficulty}</span>
+                  {q.title}
+                </span>
+                <DeadlineEditor question={q} startsAt={startsAtIso} onSaved={refresh} onError={setError} />
+                <span className="meta">
+                  <span className="points">{q.base_score} pts</span>
+                  <button className="danger" onClick={() => handleDelete(q.id)}>
+                    <Trash size={13} />
+                    Delete
+                  </button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="panel">
+        <div className="panel-head">
+          <h2>New question</h2>
+        </div>
+        <form onSubmit={handleCreate} className="form-grid">
+          <label className="span-2">
+            Title
+            <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} required />
+          </label>
+          <label className="span-2">
+            Statement
+            <textarea
+              value={form.statement}
+              onChange={(e) => setForm({ ...form, statement: e.target.value })}
+              rows={6}
+              required
+            />
+          </label>
+          <div className="field">
+            Difficulty
+            <span className="segmented" role="radiogroup" aria-label="Difficulty">
+              {["easy", "medium", "hard"].map((d) => (
+                <button
+                  key={d}
+                  type="button"
+                  role="radio"
+                  aria-checked={form.difficulty === d}
+                  className={`ghost${form.difficulty === d ? " is-active" : ""}`}
+                  onClick={() => setForm({ ...form, difficulty: d })}
+                >
+                  {d}
+                </button>
+              ))}
+            </span>
+          </div>
+          <div className="field">
+            Base score
+            <NumberStepper
+              value={String(form.base_score)}
+              onChange={(v) => setForm({ ...form, base_score: v })}
+              step={10}
+              ariaLabel="base score"
+            />
+          </div>
+          <label>
+            Allowed languages
+            <LanguagePicker
+              languages={LANGUAGES}
+              value={form.allowed_languages}
+              onChange={(allowed_languages) => setForm({ ...form, allowed_languages })}
+              multiple
+            />
+          </label>
+          <div className="field">
+            Countdown (optional)
+            <DurationInputs
+              hours={form.hours}
+              minutes={form.minutes}
+              onChange={(d) => setForm({ ...form, ...d })}
+            />
+          </div>
+
+          <div className="span-2 test-cases">
+            <h3>Test cases</h3>
+            {form.test_cases.map((tc, i) => (
+              <div key={i} className="test-case-form">
+                <span className="tc-index">#{i + 1}</span>
+                <textarea
+                  placeholder="input"
+                  value={tc.input}
+                  onChange={(e) => updateTestCase(i, "input", e.target.value)}
+                />
+                <textarea
+                  placeholder="expected output"
+                  value={tc.expected_output}
+                  onChange={(e) => updateTestCase(i, "expected_output", e.target.value)}
+                />
+                <label>
+                  public
+                  <input
+                    type="checkbox"
+                    checked={tc.is_public}
+                    onChange={(e) => updateTestCase(i, "is_public", e.target.checked)}
+                  />
+                </label>
+              </div>
+            ))}
+            <button
+              type="button"
+              className="ghost"
+              onClick={() => setForm({ ...form, test_cases: [...form.test_cases, emptyTestCase()] })}
+            >
+              <Plus size={13} />
+              Add test case
+            </button>
+          </div>
+
+          <div className="span-2 form-actions">
+            <button type="submit">Create question</button>
+          </div>
+        </form>
+      </section>
     </div>
   );
 }

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Navigate, Route, Routes, NavLink } from "react-router-dom";
 import { ArrowsIn, ArrowsOut, Ghost, SignOut } from "@phosphor-icons/react";
 import { AuthProvider, useAuth } from "./AuthContext.jsx";
+import { api } from "./api/client.js";
 import { isFullscreen, toggleFullscreen } from "./fullscreen.js";
 import LoginPage from "./LoginPage.jsx";
 import Leaderboard from "./Leaderboard.jsx";
@@ -34,6 +35,23 @@ function Nav() {
     document.addEventListener("fullscreenchange", handleChange);
     return () => document.removeEventListener("fullscreenchange", handleChange);
   }, []);
+
+  // Logging out once the event has started forfeits the contest: the
+  // disqualification is recorded first, so signing back in lands on the
+  // disqualified screen instead of resuming.
+  async function handleLogout() {
+    if (role === "participant") {
+      try {
+        const event = await api.getEvent();
+        if (event.starts_at && new Date(event.starts_at).getTime() <= Date.now()) {
+          await api.disqualify();
+        }
+      } catch {
+        // Best effort: don't trap the user on the page if the request fails.
+      }
+    }
+    logout();
+  }
 
   if (!role) return null;
   return (
@@ -70,7 +88,7 @@ function Nav() {
           {fs ? "Exit fullscreen" : "Fullscreen"}
         </button>
       )}
-      <button className="ghost nav-logout" onClick={logout}>
+      <button className="ghost nav-logout" onClick={handleLogout}>
         <SignOut size={15} />
         Log out
       </button>
